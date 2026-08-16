@@ -1,7 +1,7 @@
 {
-  "name": "repo-template-typescript",
-  "version": "0.0.0",
-  "description": "A TypeScript starter template for universal npm packages (Node, React Native, and more).",
+  "name": "@knorby/nih-dsld-client",
+  "version": "0.1.0",
+  "description": "A fully-typed, zero-dependency TypeScript client for the NIH Dietary Supplement Label Database (DSLD) v9 REST API. Universal: Node, React Native, browsers, Bun, and Deno.",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -21,7 +21,8 @@
   "files": [
     "dist",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "sideEffects": false,
   "engines": {
@@ -37,9 +38,33 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:live": "DSLD_LIVE_TESTS=1 vitest run --testNamePattern=live",
     "release": "npm run build && changeset publish",
     "prepare": "husky"
   },
+  "keywords": [
+    "nih",
+    "dsld",
+    "dietary",
+    "supplement",
+    "label",
+    "database",
+    "api",
+    "client",
+    "typescript",
+    "ods",
+    "react-native",
+    "universal"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/knorby/nih-dsld-client.git"
+  },
+  "homepage": "https://github.com/knorby/nih-dsld-client",
+  "bugs": {
+    "url": "https://github.com/knorby/nih-dsld-client/issues"
+  },
+  "license": "Apache-2.0",
   "lint-staged": {
     "*.{js,ts,cjs,mjs,jsx,tsx,json,jsonc,css}": [
       "biome check --write --no-errors-on-unmatched"
@@ -62,6 +87,7 @@
     "vitest": "^4.1.10"
   },
   "publishConfig": {
+    "access": "public",
     "provenance": true
   }
 }

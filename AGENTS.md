@@ -2,9 +2,27 @@
 
 Instructions and steering for AI coding agents working in this repository.
 
-This is a TypeScript starter template for universal npm packages (Node, React
-Native, and more). Customize per project and keep this file updated as
-conventions evolve.
+This is `@knorby/nih-dsld-client` — a fully-typed, zero-dependency
+TypeScript client for the NIH Dietary Supplement Label Database (DSLD) v9
+REST API. It targets a universal runtime (Node, React Native, browsers, Bun,
+Deno) and ships under Apache-2.0. Keep this file updated as conventions
+evolve.
+
+The lightweight, namespaced client surface mirrors the DSLD v9 endpoints:
+
+- `client.version.get()` — API version metadata
+- `client.label.get(id)` — full label by DSLD ID
+- `client.products.byBrand(...)` / `client.products.browse(...)` /
+  `client.products.browseAll(...)` — brand-products + browse-products
+- `client.brands.browse(...)` / `client.brands.browseAll(...)` — browse-brands
+- `client.ingredients.groups(...)` / `client.ingredients.groupsAll(...)` —
+  ingredient-groups
+- `client.search.labels(filters)` / `client.search.histogram(filters)` /
+  `client.search.byBarcode(barcode, filters?)` — search-filter + histogram
+
+All code enums (product-type, ingredient-category, supplement-form,
+target-group, claim-type codes) are exported as both literal-union types and
+const description maps so every option is discoverable in the editor.
 
 ---
 
@@ -135,10 +153,12 @@ PRs and release them all at once.
 - **Provenance** — `publishConfig.provenance: true` in `package.json` enables
   npm provenance attestation (cryptographic link to commit + workflow).
 - **Scoped names** — use `@yourscope/package` names to prevent dependency
-  confusion attacks.
+  confusion attacks. Note: scoped packages default to **restricted** (private)
+  visibility on npm; `publishConfig.access: "public"` in `package.json` flips
+  this to public so a public release doesn't fail.
 - **No secrets in published files** — the `files` field in `package.json`
-  whitelists only `dist`, `README.md`, and `CHANGELOG.md`. Never add `src/`,
-  `.env`, `tsconfig.json`, or other config to the `files` list.
+  whitelists only `dist`, `README.md`, `CHANGELOG.md`, and `LICENSE`. Never
+  add `src/`, `.env`, `tsconfig.json`, or other config to the `files` list.
 - **`.npmrc`** — `ignore-scripts=true` blocks dependency `postinstall`
   scripts by default (supply-chain security). This also blocks this repo's
   own `prepare` script, so `npm install` will not auto-set-up Husky hooks —
@@ -191,7 +211,7 @@ These rules are mandatory. Follow them strictly.
   ```bash
   npm run lint && npm run typecheck && npm test && npm run build
   ```
-- Verify that `npm pack --dry-run` includes only `dist/`, `README.md`, and
-  `CHANGELOG.md` (no source, config, or secret files).
+- Verify that `npm pack --dry-run` includes only `dist/`, `README.md`,
+  `CHANGELOG.md`, and `LICENSE` (no source, config, or secret files).
 - Verify that `AGENTS.md` and `README.md` still reflect the current state of
   the repository.
