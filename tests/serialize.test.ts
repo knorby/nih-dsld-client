@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  barcodeVariants,
   buildQueryString,
   mergeParams,
   paginate,
@@ -46,6 +47,45 @@ describe("wrapBarcode", () => {
   it("wraps the raw barcode in double quotes", () => {
     expect(wrapBarcode("80004843")).toBe('"80004843"');
     expect(wrapBarcode("0 33674 13941 7")).toBe('"0 33674 13941 7"');
+  });
+});
+
+describe("barcodeVariants", () => {
+  it("adds the GS1-spaced form for 12-digit input", () => {
+    expect(barcodeVariants("033674139417")).toEqual([
+      "033674139417",
+      "0 33674 13941 7",
+    ]);
+  });
+
+  it("adds the digits-only form for spaced input", () => {
+    expect(barcodeVariants("0 33674 13941 7")).toEqual([
+      "0 33674 13941 7",
+      "033674139417",
+    ]);
+  });
+
+  it("groups 13-digit codes as 1-5-6-1", () => {
+    expect(barcodeVariants("5012345678900")).toEqual([
+      "5012345678900",
+      "5 01234 567890 0",
+    ]);
+  });
+
+  it("strips hyphens and trims surrounding whitespace", () => {
+    expect(barcodeVariants(" 0-33674 13941-7 ")).toEqual([
+      "0-33674 13941-7",
+      "033674139417",
+      "0 33674 13941 7",
+    ]);
+  });
+
+  it("returns no spaced form for non-12/13-digit codes", () => {
+    expect(barcodeVariants("80004843")).toEqual(["80004843"]);
+  });
+
+  it("returns an empty list for blank input", () => {
+    expect(barcodeVariants("   ")).toEqual([]);
   });
 });
 

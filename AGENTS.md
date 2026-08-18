@@ -17,8 +17,13 @@ The lightweight, namespaced client surface mirrors the DSLD v9 endpoints:
 - `client.brands.browse(...)` / `client.brands.browseAll(...)` — browse-brands
 - `client.ingredients.groups(...)` / `client.ingredients.groupsAll(...)` —
   ingredient-groups
-- `client.search.labels(filters)` / `client.search.histogram(filters)` /
-  `client.search.byBarcode(barcode, filters?)` — search-filter + histogram
+- `client.search.labels(filters)` / `client.search.labelsAll(filters)` /
+  `client.search.histogram(filters)` / `client.search.byBarcode(barcode, filters?)`
+  — search-filter + histogram. `q` is optional (defaults to `"*`);
+  `byBarcode` probes UPC spacing variants (as-passed → digits-only →
+  GS1-spaced); `labelsAll` paginates via short-page detection
+  (`search-filter` returns no `total`). `codeFor(map, term)` reverse-looks-up
+  code enums from friendly terms.
 
 All code enums (product-type, ingredient-category, supplement-form,
 target-group, claim-type codes) are exported as both literal-union types and

@@ -71,6 +71,40 @@ export function wrapBarcode(barcode: string): string {
 }
 
 /**
+ * Builds the barcode representations to probe against the DSLD `upcSku`
+ * index, in priority order:
+ *
+ * 1. The input exactly as passed (trimmed).
+ * 2. The input with whitespace/hyphens stripped — matches products whose
+ *    `upcSku` is stored digits-only (e.g. `"80004843"`).
+ * 3. The canonical GS1 human-readable grouping with spaces re-inserted —
+ *    matches products whose `upcSku` is stored as printed on the package
+ *    (e.g. `"0 33674 13941 7"` for a 12-digit UPC-A). Only 12- and
+ *    13-digit codes receive a grouped form.
+ *
+ * DSLD stores UPCs inconsistently across records (some spaced, some
+ * digits-only), and the exact-phrase `q` match is token-based — a
+ * digits-only query cannot match a spaced `upcSku` and vice versa — so
+ * {@link DsldClient.search.byBarcode} probes each variant until one hits.
+ * Duplicates are removed while preserving order.
+ */
+export function barcodeVariants(barcode: string): string[] {
+  const raw = barcode.trim();
+  const digits = raw.replace(/[\s-]+/g, "");
+  const grouped = groupBarcode(digits);
+  const variants = [raw, digits, grouped].filter((v) => v.length > 0);
+  return [...new Set(variants)];
+}
+
+/** Re-inserts GS1 human-readable spacing: 1-5-5-1 (UPC-A) or 1-5-6-1 (EAN-13). */
+function groupBarcode(digits: string): string {
+  if (digits.length === 12 || digits.length === 13) {
+    return `${digits.slice(0, 1)} ${digits.slice(1, 6)} ${digits.slice(6, -1)} ${digits.slice(-1)}`;
+  }
+  return "";
+}
+
+/**
  * Async generator that lazily walks every page of a paginated DSLD endpoint.
  *
  * The four list endpoints (`brand-products`, `browse-brands`,
@@ -82,6 +116,10 @@ export function wrapBarcode(barcode: string): string {
  * `total` is reached. When `total.relation === "gte"` (Elasticsearch caps
  * accurate counting at 10,000), pagination continues until a short page is
  * returned.
+ *
+ * Also works with results that carry no `total` at all (e.g.
+ * `search-filter`): pagination then relies purely on short-page detection,
+ * issuing at most one extra request past the final page.
  *
  * @example
  * ```ts

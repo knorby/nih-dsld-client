@@ -18,6 +18,8 @@ export {
   DEFAULT_BASE_URL,
   DEFAULT_PAGE_SIZE,
   DEFAULT_TIMEOUT_MS,
+  HTTP_BAD_INPUT,
+  HTTP_TOO_MANY_REQUESTS,
   MAX_PAGE_SIZE,
 } from "./constants";
 
@@ -58,6 +60,7 @@ export {
   APPLY_SYNONYMS,
   BROWSE_METHODS,
   CLAIM_TYPE_CODES,
+  codeFor,
   INGREDIENT_CATEGORIES,
   MARKET_STATUS,
   PRODUCT_TYPE_CODES,
@@ -108,4 +111,4 @@ export type {
 export type { VersionInfo } from "./types/version";
 export type { QueryRecord } from "./utils/serialize";
 // Utility re-exports for advanced/pagination use.
-export { paginate } from "./utils/serialize";
+export { barcodeVariants, paginate, wrapBarcode } from "./utils/serialize";

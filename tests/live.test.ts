@@ -85,4 +85,12 @@ describe("live: search", () => {
     const res = await client.search.byBarcode("80004843", { size: 1 });
     expect(res.hits?.length).toBeGreaterThan(0);
   });
+
+  itLive("byBarcode finds spaced upcSku from a digits-only scan", async () => {
+    // DSLD stores this UPC as "0 33674 13941 7"; a digits-only quoted
+    // query alone returns zero hits, so this exercises the variant probing.
+    const res = await client.search.byBarcode("033674139417");
+    expect(res.hits?.length).toBeGreaterThan(0);
+    expect(typeof res.hits?.[0]?._source?.fullName).toBe("string");
+  });
 });

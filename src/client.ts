@@ -15,10 +15,12 @@ import type { Label } from "./types/label";
 import type {
   SearchFilters,
   SearchHistogramResult,
+  SearchLabelSource,
   SearchResult,
+  SearchResultHit,
 } from "./types/search";
 import type { VersionInfo } from "./types/version";
-import { paginate, wrapBarcode } from "./utils/serialize";
+import { barcodeVariants, paginate, wrapBarcode } from "./utils/serialize";
 
 /** Parameters for {@link DsldClient.products.byBrand}. */
 export interface BrandProductsParams {
@@ -242,6 +244,15 @@ export class IngredientsNamespace {
   }
 }
 
+/**
+ * Sends `q: "*"` (match-anything) when `q` is omitted, so pure fielded
+ * searches against `search-filter` remain valid without callers having to
+ * know the server's term-less convention.
+ */
+function withDefaultQ(filters: SearchFilters): SearchFilters {
+  return filters.q === undefined ? { ...filters, q: "*" } : filters;
+}
+
 /** `client.search` — search-filter + histogram. */
 export class SearchNamespace {
   constructor(private readonly requester: DsldRequester) {}
@@ -250,8 +261,9 @@ export class SearchNamespace {
    * Searches labels matching a complex combination of terms and filters
    * (`GET /v9/search-filter`).
    *
-   * `filters.q` is required; use `"*"` for a term-less search. Multi-value
-   * filters accept arrays (comma-joined automatically).
+   * `filters.q` may be omitted for a term-less, filter-only search (the
+   * client sends `"*"`). Multi-value filters accept arrays (comma-joined
+   * automatically).
    *
    * @example
    * ```ts
@@ -265,7 +277,30 @@ export class SearchNamespace {
    * ```
    */
   labels(filters: SearchFilters): Promise<SearchResult> {
-    return this.requester.get<SearchResult>("v9/search-filter", filters);
+    return this.requester.get<SearchResult>(
+      "v9/search-filter",
+      withDefaultQ(filters),
+    );
+  }
+
+  /**
+   * Lazily iterates every search hit across all pages of {@link labels}.
+   * Yields {@link SearchResultHit} objects.
+   *
+   * `search-filter` returns no `total`, so pages are walked until a short
+   * (or empty) page signals the end of results.
+   *
+   * @param filters Search filters (without `from`/`size`).
+   * @param size Page size (default 1000). Pass a smaller value for low-memory runs.
+   */
+  async *labelsAll(
+    filters: Omit<SearchFilters, "from" | "size">,
+    size?: number,
+  ): AsyncGenerator<SearchResultHit> {
+    yield* paginate<SearchLabelSource>({
+      size,
+      fetchPage: (from, sz) => this.labels({ ...filters, from, size: sz }),
+    });
   }
 
   /**
@@ -276,26 +311,47 @@ export class SearchNamespace {
   histogram(filters: SearchFilters): Promise<SearchHistogramResult> {
     return this.requester.get<SearchHistogramResult>(
       "v9/search-filter-histogram",
-      filters,
+      withDefaultQ(filters),
     );
   }
 
   /**
    * Searches labels by barcode / UPC SKU.
    *
-   * Convenience wrapper around {@link labels} that wraps the barcode in
-   * double quotes (required by the API guide for an exact `upcSku` match) and
-   * URL-encodes it. Pass the raw scanned string — e.g. `"0 33674 13941 7"`
-   * or `"80004843"`.
+   * DSLD stores `upcSku` inconsistently across records — some with the
+   * human-readable spacing shown on the package (`"0 33674 13941 7"`),
+   * some digits-only (`"80004843"`) — and the exact `q` match required by
+   * the API is token-based, so one representation cannot match the other.
+   * This wrapper wraps each candidate representation in double quotes
+   * (URL-encoding handled by the client) and probes them in order until a
+   * query returns hits:
    *
-   * @param barcode The raw barcode (with or without spaces).
+   * 1. the input exactly as passed (trimmed);
+   * 2. the input with whitespace/hyphens stripped;
+   * 3. the canonical GS1 grouping with spaces re-inserted (12/13-digit codes).
+   *
+   * A miss costs one extra request per remaining variant, so a typical
+   * lookup resolves in 1–2 requests. When nothing matches, the result of
+   * the **as-passed** query is returned (empty `hits`).
+   *
+   * @param barcode The raw scanned string — with or without spaces.
    * @param filters Optional additional filters (must not include `q`).
    */
-  byBarcode(
+  async byBarcode(
     barcode: string,
     filters?: Omit<SearchFilters, "q">,
   ): Promise<SearchResult> {
-    const merged: SearchFilters = { ...filters, q: wrapBarcode(barcode) };
-    return this.labels(merged);
+    const variants = barcodeVariants(barcode);
+    const head = variants[0];
+    if (head === undefined) {
+      return this.labels({ ...filters, q: wrapBarcode(barcode.trim()) });
+    }
+    const first = await this.labels({ ...filters, q: wrapBarcode(head) });
+    if ((first.hits?.length ?? 0) > 0) return first;
+    for (const variant of variants.slice(1)) {
+      const result = await this.labels({ ...filters, q: wrapBarcode(variant) });
+      if ((result.hits?.length ?? 0) > 0) return result;
+    }
+    return first;
   }
 }
