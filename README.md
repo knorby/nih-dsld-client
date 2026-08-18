@@ -1,175 +1,302 @@
-# repo-template-typescript
+# @knorby/nih-dsld-client
 
-A TypeScript starter template for universal npm packages (Node, React Native,
-and more) with dual ESM/CJS output, Biome linting/formatting, Vitest testing,
-Changesets versioning, and security-focused publishing defaults.
+A fully-typed, zero-dependency TypeScript client for the NIH Dietary Supplement
+Label Database (DSLD) v9 REST API. Universal: works in Node, React Native,
+browsers, Bun, and Deno — anywhere the standard Web `fetch` is available.
 
-<!-- TODO: Replace project name and description above with project-specific values. -->
+- **Zero runtime dependencies** — built on the standard `fetch`, `Headers`,
+  `AbortController`, and `Response` (all global in modern runtimes).
+- **Fully typed** — every endpoint, response model, and coded filter
+  (product type, ingredient category, target group, supplement form, claim
+  type, …) is a literal-union type so your editor surfaces every valid option.
+- **Comprehensive** — covers all seven v9 endpoints, plus async-iterator
+  auto-pagination and a barcode-search helper.
+- **Predictable errors** — typed `DsldApiError` / `DsldTimeoutError` with
+  parsed `Retry-After` on rate-limit (429) responses.
 
-## What's included
+DSLD data are in the public domain (CC0 1.0). When using this client, please
+credit the source:
 
-- **`tsup`** — zero-config build tool producing dual ESM + CJS output with
-  TypeScript declaration files (`.d.ts`).
-- **`Biome`** — single-tool linter + formatter (replaces ESLint + Prettier;
-  10-100x faster).
-- **`Vitest`** — fast test runner with native ESM and TypeScript support.
-- **`Changesets`** — versioning and changelog management (decoupled from
-  merges).
-- **`Husky` + `lint-staged`** — pre-commit hooks for Biome (lint + format
-  staged files).
-- **`commitlint`** — enforces [conventional commits](https://www.conventionalcommits.org/).
-- **`pre-commit`** — file hygiene (whitespace, EOL, YAML/JSON validation),
-  secret scanning (gitleaks + TruffleHog), shellcheck, and
-  `no-commit-to-branch` protection.
-- **GitHub Actions** — CI runs lint, typecheck, build, test, and `npm audit`
-  on every push/PR. Release workflow included (disabled by default).
-- **Security defaults** — `.npmrc` blocks dependency `postinstall` scripts,
-  `package.json` ships with provenance attestation enabled, `files` field
-  whitelists only `dist/`.
+> National Institutes of Health, Office of Dietary Supplements. Dietary
+> Supplement Label Database, 2026. https://dsld.od.nih.gov/.
 
-## Prerequisites
-
-- **Node.js 22+** (use [nvm](https://github.com/nvm-sh/nvm) or
-  [fnm](https://github.com/Schniz/fnm); this repo includes an `.nvmrc`).
-- **npm** (bundled with Node).
-- **pre-commit** — `pipx install pre-commit` or `brew install pre-commit`.
-- **gitleaks** — `brew install gitleaks` (secret scanner for pre-commit).
-- **Go toolchain** — `brew install go` (required once for the TruffleHog hook
-  build).
-
-## Getting started
+## Install
 
 ```bash
-# 1. Clone the repo (or use it as a template on GitHub)
-git clone <repo-url>
-cd <repo-name>
-
-# 2. Use the correct Node version
-nvm use              # or: fnm use
-
-# 3. Install dependencies
-npm install
-
-# 4. Set up Husky hooks (prepare script is blocked by .npmrc ignore-scripts)
-npx husky
-
-# 5. Install pre-commit hooks (file hygiene + secret scanning)
-pre-commit install
-
-# 6. Run all hooks against all files to verify
-pre-commit run --all-files
+npm install @knorby/nih-dsld-client
 ```
 
-The first `pre-commit run` installs all hook environments and builds
-TruffleHog from source (a few minutes). Subsequent runs are cached and fast.
+## Quick start
+
+```ts
+import { DsldClient } from "@knorby/nih-dsld-client";
+
+// No API key needed for up to 1,000 requests/hour per IP.
+const client = new DsldClient({
+  // apiKey: process.env.DSLD_API_KEY, // raises limit to 10,000/hr
+});
+
+// API version metadata
+const info = await client.version.get();
+
+// Full label by DSLD ID
+const label = await client.label.get(82118);
+
+// Browse brands starting with "A"
+const brands = await client.brands.browse({ method: "by_letter", q: "A", size: 10 });
+
+// Search with filters
+const results = await client.search.labels({
+  q: "Vitamin D",
+  status: 1,                       // 1 = on market
+  product_type: ["a1302", "a1316"], // Vitamin, Single Vitamin & Mineral
+  sort_by: "entryDate",
+  sort_order: "desc",
+});
+
+// Look up a label by scanned barcode (handles quoting/encoding for you)
+const match = await client.search.byBarcode("0 33674 13941 7");
+```
+
+## Universal runtime notes
+
+The client uses the global `fetch` (and `Headers` / `AbortController` /
+`Response`), which is native in:
+
+| Runtime    | Available since |
+| ---------- | --------------- |
+| Node.js    | 18              |
+| Browsers   | Evergreen       |
+| React Native | 0.73+ (fetch polyfill) |
+| Bun / Deno | All             |
+
+For tests or older runtimes, inject a custom `fetch`:
+
+```ts
+import { DsldClient } from "@knorby/nih-dsld-client";
+
+const client = new DsldClient({
+  fetch: (url, init) => myFetchImpl(url, init),
+});
+```
+
+## API reference
+
+### `client.version.get(): Promise<VersionInfo>`
+
+`GET /version` — deployed API version metadata.
+
+### `client.label.get(id: number): Promise<Label>`
+
+`GET /v9/label/{id}` — the full label model (ingredients, quantities, claims,
+contacts, serving sizes, events, …).
+
+```ts
+const label = await client.label.get(82118);
+label.ingredientRows?.forEach((row) => {
+  console.log(row.name, row.quantity?.[0]?.quantity, row.quantity?.[0]?.unit);
+});
+```
+
+### `client.products` — product listings
+
+```ts
+// GET /v9/brand-products — products for a given brand
+await client.products.byBrand({ q: "Health", from: 0, size: 100 });
+
+// GET /v9/browse-products — browse by keyword or letter
+await client.products.browse({ method: "by_letter", q: "V" });
+await client.products.browse({ method: "by_keyword", q: "Vitamin D" });
+
+// Lazily iterate every product across all pages
+for await (const hit of client.products.browseAll({ method: "by_letter", q: "V" })) {
+  console.log(hit._source?.fullName);
+}
+```
+
+### `client.brands` — brand listings
+
+```ts
+await client.brands.browse({ method: "by_keyword", q: "Health" });
+await client.brands.browse({ method: "by_letter", q: "G" });
+
+for await (const hit of client.brands.browseAll({ method: "by_letter", q: "A" })) {
+  console.log(hit._source?.brandName);
+}
+```
+
+### `client.ingredients` — ingredient groups
+
+```ts
+await client.ingredients.groups({ method: "by_keyword", term: "Vitamin D" });
+await client.ingredients.groups({ method: "by_letter", term: "Z" });
+await client.ingredients.groups({ method: "factsheet", term: "Folic Acid" });
+
+for await (const hit of client.ingredients.groupsAll({ method: "by_letter", term: "Z" })) {
+  console.log(hit._source?.groupName);
+}
+```
+
+### `client.search` — search-filter + histogram
+
+```ts
+// GET /v9/search-filter — complex combination of terms & filters
+const res = await client.search.labels({
+  q: "Strontium",                 // required; use "*" for term-less search
+  status: 2,                       // 0 = off market, 1 = on market, 2 = all
+  date_start: 2020,
+  date_end: 2024,
+  product_name: ["Daily Multi"],   // arrays → comma-joined automatically
+  product_type: ["a1302", "a1316"],
+  ingredient_name: ["Vitamin D"],
+  apply_synonyms: "Yes",           // or "No" for exact-only
+  ingredient_category: ["vitamin", "mineral"],
+  brand: ["Nature's Bounty"],
+  target_group: ["p0250"],
+  supplement_form: ["e0159", "e0155"],
+  claim_type: ["p0065", "p0265"],
+  label_claim: ["calcium"],
+  sort_by: "entryDate",            // "_score" | "entryDate" | "fullName.keyword"
+  sort_order: "desc",              // "asc" | "desc"
+});
+
+// GET /v9/search-filter-histogram — yearly buckets of labels added to DSLD
+const buckets = await client.search.histogram({ q: "Strontium" });
+
+// Barcode / UPC search (quotes + encodes the barcode for exact upcSku match)
+await client.search.byBarcode("0 33674 13941 7", { status: 1 });
+```
+
+## Code enums
+
+Every coded filter is exported as a **const description map** plus a derived
+**literal-union type**, so options are discoverable and typos are caught at
+compile time:
+
+```ts
+import {
+  PRODUCT_TYPE_CODES,
+  SUPPLEMENT_FORM_CODES,
+  type ProductTypeCode,
+} from "@knorby/nih-dsld-client";
+
+console.log(PRODUCT_TYPE_CODES.a1302);        // "Amino Acid/Protein"
+const code: ProductTypeCode = "a1302";        // OK
+```
+
+| Enum                | Const map                | Type                       |
+| ------------------- | ------------------------ | -------------------------- |
+| Product type        | `PRODUCT_TYPE_CODES`     | `ProductTypeCode`          |
+| Ingredient category | `INGREDIENT_CATEGORIES`  | `IngredientCategoryCode`   |
+| Target group        | `TARGET_GROUP_CODES`     | `TargetGroupCode`          |
+| Supplement form     | `SUPPLEMENT_FORM_CODES`  | `SupplementFormCode`       |
+| Claim type          | `CLAIM_TYPE_CODES`        | `ClaimTypeCode`            |
+| Market status       | `MARKET_STATUS`          | `MarketStatus`             |
+| Sort field          | `SORT_BY_FIELDS`         | `SortByField`              |
+| Sort order          | `SORT_ORDERS`            | `SortOrder`                |
+| Browse method       | `BROWSE_METHODS`         | `BrowseMethod`             |
+| Apply synonyms      | `APPLY_SYNONYMS`         | `ApplySynonyms`            |
+
+## Configuration
+
+```ts
+const client = new DsldClient({
+  baseUrl: "https://api.ods.od.nih.gov/dsld", // default
+  apiKey: process.env.DSLD_API_KEY,           // appended as ?api_key=...
+  timeoutMs: 30_000,                          // per-request timeout (default 30s)
+  headers: { "X-Custom": "value" },           // extra headers
+  userAgent: "my-app/1.0",                    // default User-Agent override
+  fetch: customFetch,                         // inject a fetch impl
+});
+```
+
+### Rate limits
+
+The DSLD API allows **1,000 requests/hour per IP** without a key, and
+**10,000 requests/hour** with a free data.gov API key. Exceeding the limit
+returns `429` with a `Retry-After` header, surfaced as
+`DsldApiError.retryAfterSeconds`. Obtain a key from the
+[data.gov developer network](https://api.data.gov/docs/developer/).
+
+## Error handling
+
+```ts
+import { DsldApiError, DsldTimeoutError, DsldError } from "@knorby/nih-dsld-client";
+
+try {
+  await client.label.get(id);
+} catch (err) {
+  if (err instanceof DsldApiError) {
+    console.error(`API ${err.status}`, err.body);
+    if (err.status === 429) {
+      console.log(`retry after ${err.retryAfterSeconds}s`);
+    }
+  } else if (err instanceof DsldTimeoutError) {
+    console.error("timed out", err.timeoutMs);
+  } else if (err instanceof DsldError) {
+    console.error("other client error", err);
+  }
+}
+```
+
+## Pagination
+
+The four list endpoints (`brand-products`, `browse-brands`, `browse-products`,
+`ingredient-groups`) page via `from`/`size` (default 1000/page, server-capped).
+Use the `*All` async generators to walk every hit without manual bookkeeping:
+
+```ts
+for await (const hit of client.brands.browseAll({ method: "by_letter", q: "A" })) {
+  // fetches the next page lazily as you iterate
+}
+
+// Or paginate manually:
+let from = 0;
+const size = 100;
+const page = await client.brands.browse({ method: "by_letter", q: "A", from, size });
+```
+
+The exported `paginate()` helper lets you wrap any page-fetching function:
+
+```ts
+import { paginate } from "@knorby/nih-dsld-client";
+
+for await (const hit of paginate({
+  size: 100,
+  fetchPage: (from, size) => client.brands.browse({ method: "by_letter", q: "A", from, size }),
+})) {
+  // ...
+}
+```
+
+## Testing
+
+```bash
+npm test                    # unit tests (mocked fetch)
+npm run test:watch
+npm run test:coverage
+DSLD_LIVE_TESTS=1 npm test  # opt-in live smoke tests against the real API
+```
+
+Unit tests use an injected mock `fetch` — no network access. Live smoke tests
+are skipped unless `DSLD_LIVE_TESTS=1` is set and use tiny page sizes to stay
+within rate limits.
 
 ## Development
 
 | Command | What it does |
 | --- | --- |
-| `npm run build` | Build the package (tsup + tsc — dual ESM/CJS output with `.d.ts`/`.d.cts` declarations) |
+| `npm run build` | Build (tsup + tsc — dual ESM/CJS with `.d.ts`/`.d.cts`) |
 | `npm run dev` | Build in watch mode |
 | `npm run lint` | Lint with Biome |
-| `npm run format` | Format with Biome (writes changes) |
 | `npm run check` | Lint + format in one pass (writes changes) |
-| `npm run typecheck` | Type-check with `tsc --noEmit` |
-| `npm test` | Run tests once (Vitest) |
-| `npm run test:watch` | Run tests in watch mode |
-| `npm run test:coverage` | Run tests with coverage reporting |
+| `npm run typecheck` | Type-check `src/` + `tests/` |
+| `npm test` | Run tests (Vitest) |
 
-### Project structure
+See [`AGENTS.md`](AGENTS.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md) for the
+full development workflow, and [`docs/`](docs/) for architecture notes.
 
-```
-src/
-  index.ts              # package entry point (add exports here)
-tests/
-  index.test.ts         # test files (*.test.ts)
-dist/                   # build output (gitignored, generated by tsup)
-.changeset/             # changeset files (versioning)
-.github/workflows/      # CI + release workflows
-docs/decisions/          # architecture decision records (ADRs)
-```
+## License
 
-## Testing
-
-Tests use [Vitest](https://vitest.dev/) and live in `tests/`. Add test files
-as `*.test.ts`. The CI workflow (`.github/workflows/tests.yml`) runs the full
-suite on every push to `main` and on PRs:
-
-- Biome lint
-- TypeScript type-check (`tsc --noEmit`)
-- Build (`tsup`)
-- Tests (`vitest run`)
-- Vulnerability scan (`npm audit --audit-level=moderate`)
-
-## Versioning and publishing
-
-This repo uses [Changesets](https://github.com/changesets/changesets) for
-versioning. Versioning is decoupled from merges — you can merge multiple PRs
-and release them all at once.
-
-### Adding a changeset
-
-```bash
-npx changeset
-```
-
-Select patch/minor/major, write a summary. Commit the generated
-`.changeset/*.md` alongside your code.
-
-### Releasing
-
-```bash
-npm run build                # build the package
-npm pack --dry-run            # verify only dist/ + docs are included
-npx changeset version          # bump package.json + generate CHANGELOG.md
-npm run release                # build + publish to npm
-```
-
-### Automated releases (optional)
-
-The release workflow (`.github/workflows/release.yml`) is included but
-**disabled by default** (manual `workflow_dispatch` trigger only). To enable
-automated releases on every merge to main, change the trigger to
-`push: branches: [main]`. The changesets action will open a "Version
-Packages" PR; merging it publishes to npm and creates a GitHub Release.
-
-### Publishing security
-
-- **2FA**: enable on npm — `npm profile enable-2fa auth-and-writes`
-- **Granular tokens**: use npm Granular Access Tokens (scoped, publish-only,
-  time-limited). Classic tokens were revoked December 2025.
-- **Provenance**: this repo publishes with `--provenance` (cryptographic
-  attestation linking the package to its commit + workflow).
-- **Scoped names**: use `@yourscope/package` to prevent dependency confusion.
-- **`.npmrc`**: `ignore-scripts=true` blocks dependency `postinstall`
-  scripts. This also blocks the `prepare` script, so run `npx husky`
-  after `npm install` to set up hooks (or use
-  `npm install --ignore-scripts=false`).
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
-
-## Customizing
-
-- **Package name**: update `name` in `package.json`.
-- **Build targets**: adjust `tsup.config.ts` (format, target, entry points).
-- **TypeScript config**: modify `tsconfig.json` (target, module, strictness).
-- **Biome rules**: edit `biome.json` (formatter style, linter rules).
-- **Biome → ESLint + Prettier**: if you need a larger rule ecosystem, remove
-  `@biomejs/biome` from devDependencies, install ESLint + Prettier +
-  `eslint-config-prettier`, create `eslint.config.mjs` (flat config) and
-  `.prettierrc`, and update the `lint-staged` config in `package.json`.
-- **Branch protection**: `no-commit-to-branch` is a local guard only. Also
-  enable GitHub branch protection rules on `main` (Settings → Branches).
-- **CODEOWNERS**: update `.github/CODEOWNERS` with your GitHub username.
-
-## Documentation
-
-- [`AGENTS.md`](AGENTS.md) — instructions and steering for AI coding agents.
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — development workflow, commit
-  conventions, publishing.
-- [`docs/`](docs/) — design notes, architecture, and decision records.
-- [`docs/decisions/ADR-0001-tooling-stack.md`](docs/decisions/ADR-0001-tooling-stack.md)
-  — rationale for the chosen toolchain.
-
-<!-- TODO: Add npm version / downloads / license badges once published. -->
+Apache-2.0. DSLD data accessed through this client are public domain (CC0 1.0);
+please cite the NIH Office of Dietary Supplements as the source.
