@@ -26,10 +26,10 @@
   ],
   "sideEffects": false,
   "engines": {
-    "node": ">=22"
+    "node": ">=18"
   },
   "scripts": {
-    "build": "tsup && tsc --emitDeclarationOnly && node -e \"require('fs').copyFileSync('dist/index.d.ts','dist/index.d.cts')\"",
+    "build": "tsup && tsc --emitDeclarationOnly && node scripts/fix-declaration-imports.mjs && node -e \"require('fs').copyFileSync('dist/index.d.ts','dist/index.d.cts')\"",
     "dev": "tsup --watch",
     "lint": "biome lint",
     "format": "biome format --write",
@@ -40,6 +40,7 @@
     "test:coverage": "vitest run --coverage",
     "test:live": "DSLD_LIVE_TESTS=1 vitest run --testNamePattern=live",
     "release": "npm run build && changeset publish",
+    "prepack": "npm run build",
     "prepare": "husky"
   },
   "keywords": [
