@@ -48,6 +48,10 @@ describe("wrapBarcode", () => {
     expect(wrapBarcode("80004843")).toBe('"80004843"');
     expect(wrapBarcode("0 33674 13941 7")).toBe('"0 33674 13941 7"');
   });
+
+  it("strips embedded quotes so they cannot break the exact phrase", () => {
+    expect(wrapBarcode('8000"4843')).toBe('"80004843"');
+  });
 });
 
 describe("barcodeVariants", () => {
@@ -101,6 +105,18 @@ describe("mergeParams", () => {
     expect(mergeParams(undefined, { api_key: "k" })).toEqual({
       api_key: "k",
     });
+  });
+
+  it("keeps a JSON.parse'd __proto__ key as an own property", () => {
+    const out = mergeParams(
+      JSON.parse('{"__proto__": "injected", "q": "Vitamin D"}'),
+      {},
+    );
+    // Own property, not a dropped param / prototype mutation.
+    expect(Object.hasOwn(out, "__proto__")).toBe(true);
+    expect(Object.getPrototypeOf(out)).toBeNull();
+    expect(buildQueryString(out)).toContain("__proto__=injected");
+    expect(out.q).toBe("Vitamin D");
   });
 });
 
@@ -165,5 +181,52 @@ describe("paginate", () => {
     const ids: string[] = [];
     for await (const hit of gen) ids.push(hit._id ?? "");
     expect(ids).toEqual([]);
+  });
+
+  it("clamps size to MAX_PAGE_SIZE so large requests cannot truncate iteration", async () => {
+    const sizes: number[] = [];
+    const pages = [
+      { hits: [{ _id: "1" }] }, // short page vs. the clamped size ⇒ stop
+    ];
+    let i = 0;
+    const gen = paginate<{ _id: string }>({
+      size: 5000,
+      fetchPage: async (from, size) => {
+        expect(from).toBe(0);
+        sizes.push(size);
+        return pages[i++] ?? { hits: [] };
+      },
+    });
+    const ids: string[] = [];
+    for await (const hit of gen) ids.push(hit._id ?? "");
+    expect(ids).toEqual(["1"]);
+    expect(sizes).toEqual([1000]);
+  });
+
+  it("rejects non-positive or fractional sizes", async () => {
+    for (const bad of [0, -1, 1.5]) {
+      const gen = paginate<{ _id: string }>({
+        size: bad,
+        fetchPage: async () => ({ hits: [] }),
+      });
+      await expect(async () => {
+        for await (const hit of gen) void hit;
+      }).rejects.toThrow(RangeError);
+    }
+  });
+
+  it("does not stop early when an eq total carries no value", async () => {
+    const pages = [
+      { hits: [{ _id: "1" }, { _id: "2" }], total: { relation: "eq" as const } },
+      { hits: [{ _id: "3" }] }, // short page ⇒ stop
+    ];
+    let i = 0;
+    const gen = paginate<{ _id: string }>({
+      size: 2,
+      fetchPage: async () => pages[i++] ?? { hits: [] },
+    });
+    const ids: string[] = [];
+    for await (const hit of gen) ids.push(hit._id ?? "");
+    expect(ids).toEqual(["1", "2", "3"]);
   });
 });
