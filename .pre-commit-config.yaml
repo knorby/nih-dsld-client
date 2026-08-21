@@ -13,7 +13,7 @@
 # Husky via lint-staged (see .husky/). Both hook managers are needed for full
 # coverage:
 #   pre-commit install   # file hygiene + secrets
-#   npx husky init        # Biome (lint-staged) + commitlint (commit-msg)
+#   npx husky            # Biome (lint-staged) + commitlint (commit-msg)
 #
 # Always prefer existing hooks from the pre-commit ecosystem over writing custom
 # ones (see https://pre-commit.com/hooks.html). If no existing hook can satisfy a

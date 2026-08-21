@@ -206,8 +206,8 @@ import {
   type ProductTypeCode,
 } from "@knorby/nih-dsld-client";
 
-console.log(PRODUCT_TYPE_CODES.a1302);        // "Amino Acid/Protein"
-const code: ProductTypeCode = "a1302";        // OK
+console.log(PRODUCT_TYPE_CODES.a1305);        // "Amino Acid/Protein"
+const code: ProductTypeCode = "a1305";        // OK
 ```
 
 ### Reverse lookup: `codeFor`
@@ -266,8 +266,9 @@ returns `429` with a `Retry-After` header, surfaced as
 ```ts
 import {
   DsldApiError,
-  DsldTimeoutError,
   DsldError,
+  DsldNetworkError,
+  DsldTimeoutError,
   HTTP_BAD_INPUT,
   HTTP_TOO_MANY_REQUESTS,
 } from "@knorby/nih-dsld-client";
@@ -282,6 +283,8 @@ try {
     }
   } else if (err instanceof DsldTimeoutError) {
     console.error("timed out", err.timeoutMs);
+  } else if (err instanceof DsldNetworkError) {
+    console.error("transport failure for", err.url, err.cause);
   } else if (err instanceof DsldError) {
     console.error("other client error", err);
   }
@@ -290,7 +293,9 @@ try {
 
 `HTTP_TOO_MANY_REQUESTS` (`429`) and `HTTP_BAD_INPUT` (`500` — the DSLD
 Swagger spec documents `500` rather than `400` for bad input parameters) are
-exported for matching these documented statuses without magic numbers.
+exported for matching these documented statuses without magic numbers. Error
+`url` properties have the `api_key` query value redacted, so logging errors
+cannot leak your data.gov key.
 
 ## Pagination
 
@@ -335,7 +340,8 @@ for await (const hit of paginate({
 npm test                    # unit tests (mocked fetch)
 npm run test:watch
 npm run test:coverage
-DSLD_LIVE_TESTS=1 npm test  # opt-in live smoke tests against the real API
+npm run test:live           # opt-in live smoke tests against the real API
+DSLD_LIVE_TESTS=1 npm test  # equivalent to test:live
 ```
 
 Unit tests use an injected mock `fetch` — no network access. Live smoke tests
