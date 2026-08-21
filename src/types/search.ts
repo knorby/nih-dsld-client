@@ -27,13 +27,19 @@ import type {
  * `target_group`, `supplement_form`, `claim_type`, `label_claim`,
  * `product_name`), pass an array — the client joins values with commas.
  *
- * The `q` parameter is **required** by the API; use `"*"` for a term-less
- * search. To search by barcode, prefer {@link DsldClient.search.byBarcode}
- * which handles the required quoting/encoding.
+ * `q` may be omitted for a pure fielded search — the client sends `"*"`
+ * (match-anything) on your behalf. To search by barcode, prefer
+ * {@link DsldClient.search.byBarcode} which handles the required
+ * quoting/encoding and UPC spacing variants.
  */
 export interface SearchFilters {
-  /** Query term; searches across all label fields. Use `"*"` for term-less search. Use quotes for exact multi-token matches. */
-  q: string;
+  /**
+   * Query term; searches across all label fields. Use quotes for exact
+   * multi-token matches. Omit for a term-less (filter-only) search — the
+   * client sends `"*"` automatically. (An explicit empty string is not
+   * valid; use `undefined`.)
+   */
+  q?: string;
   /** Field to sort on. */
   sort_by?: SortByField;
   /** Sort direction. */
@@ -106,7 +112,9 @@ export type SearchResultHit = Hit<SearchLabelSource>;
 
 /**
  * Result of `GET /v9/search-filter`. Note: this endpoint returns no `total`
- * object — use the `stats` map for per-facet counts and percentages.
+ * object — use the `stats` map for per-facet counts and percentages, and
+ * {@link DsldClient.search.labelsAll} to iterate all pages without manual
+ * short-page bookkeeping.
  */
 export interface SearchResult {
   hits?: SearchResultHit[];

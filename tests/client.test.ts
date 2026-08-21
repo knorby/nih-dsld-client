@@ -63,6 +63,15 @@ describe("DsldClient — URL building", () => {
     expect(calls[0]?.url).toBe(`${BASE}/v9/label/82118`);
   });
 
+  it("label.get derives thumbnailUrl from the id and base URL", async () => {
+    const { fetchFn } = mockFetch({ body: { id: 185040, thumbnail: "" } });
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    const label = await client.label.get(185040);
+    expect(label.thumbnailUrl).toBe(`${BASE}/s3/pdf/thumbnails/185040.jpg`);
+    // The API's own (empty) thumbnail field is passed through untouched.
+    expect(label.thumbnail).toBe("");
+  });
+
   it("products.byBrand passes q as a query param", async () => {
     const { fetchFn, calls } = mockFetch({ body: { hits: [] } });
     const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
@@ -133,12 +142,15 @@ describe("DsldClient — search", () => {
   });
 
   it("byBarcode wraps the barcode in quotes and encodes spaces", async () => {
-    const { fetchFn, calls } = mockFetch({ body: { hits: [] } });
+    const { fetchFn, calls } = mockFetch({
+      body: { hits: [{ _id: "1" }] },
+    });
     const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
     await client.search.byBarcode("0 33674 13941 7");
     const { path, query } = splitUrl(calls[0]?.url ?? "");
     expect(path).toBe(`${BASE}/v9/search-filter`);
     expect(query).toEqual({ q: '"0 33674 13941 7"' });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
   it("byBarcode merges extra filters alongside the wrapped barcode", async () => {
@@ -147,6 +159,32 @@ describe("DsldClient — search", () => {
     await client.search.byBarcode("80004843", { status: 1 });
     const { query } = splitUrl(calls[0]?.url ?? "");
     expect(query).toEqual({ q: '"80004843"', status: "1" });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("defaults q to '*' for term-less filtered searches", async () => {
+    const { fetchFn, calls } = mockFetch({ body: { hits: [] } });
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    await client.search.labels({ status: 1, product_type: "a1302" });
+    const { query } = splitUrl(calls[0]?.url ?? "");
+    expect(query).toEqual({ q: "*", status: "1", product_type: "a1302" });
+  });
+
+  it("preserves an explicit q instead of defaulting", async () => {
+    const { fetchFn, calls } = mockFetch({ body: { hits: [] } });
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    await client.search.labels({ q: "Vitamin D" });
+    const { query } = splitUrl(calls[0]?.url ?? "");
+    expect(query).toEqual({ q: "Vitamin D" });
+  });
+
+  it("histogram also defaults q to '*'", async () => {
+    const { fetchFn, calls } = mockFetch({ body: [] });
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    await client.search.histogram({ claim_type: "p0265" });
+    const { path, query } = splitUrl(calls[0]?.url ?? "");
+    expect(path).toBe(`${BASE}/v9/search-filter-histogram`);
+    expect(query).toEqual({ q: "*", claim_type: "p0265" });
   });
 
   it("histogram hits the histogram endpoint with the same filters", async () => {
@@ -165,6 +203,111 @@ describe("DsldClient — search", () => {
       `${BASE}/v9/search-filter-histogram?q=Strontium`,
     );
     expect(res[0]?.doc_count).toBe(1);
+  });
+});
+
+describe("DsldClient — byBarcode variants", () => {
+  /** Mock fetch returning a different body per call (empty object when exhausted). */
+  function sequentialFetch(bodies: unknown[]) {
+    let call = 0;
+    const fetchFn = vi.fn(async () => {
+      const body = bodies[call++] ?? { hits: [] };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+      }) as unknown as Response;
+    });
+    return { fetchFn };
+  }
+
+  it("probes the GS1-spaced form when a digits-only scan finds nothing", async () => {
+    const { fetchFn } = sequentialFetch([
+      { hits: [] },
+      {
+        hits: [{ _id: "1", _source: { fullName: "Alive! Women's 50+" } }],
+      },
+    ]);
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    const res = await client.search.byBarcode("033674139417");
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    const urls = fetchFn.mock.calls.map(([url]) => splitUrl(String(url)));
+    expect(urls[0]?.query.q).toBe('"033674139417"');
+    expect(urls[1]?.query.q).toBe('"0 33674 13941 7"');
+    expect(res.hits?.[0]?._source?.fullName).toBe("Alive! Women's 50+");
+  });
+
+  it("stops probing once a variant hits", async () => {
+    const { fetchFn } = sequentialFetch([
+      { hits: [{ _id: "9", _source: { fullName: "BeWell Daily" } }] },
+      { hits: [{ _id: "unexpected" }] },
+    ]);
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    const res = await client.search.byBarcode("80004843");
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    const first = splitUrl(String(fetchFn.mock.calls[0]?.[0]));
+    expect(first.query.q).toBe('"80004843"');
+    expect(res.hits?.length).toBe(1);
+  });
+
+  it("returns the as-passed empty result when no variant matches", async () => {
+    const { fetchFn } = sequentialFetch([{ hits: [] }, { hits: [] }]);
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    const res = await client.search.byBarcode("0 33674 13941 7");
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    const urls = fetchFn.mock.calls.map(([url]) => splitUrl(String(url)));
+    expect(urls[0]?.query.q).toBe('"0 33674 13941 7"');
+    expect(urls[1]?.query.q).toBe('"033674139417"');
+    expect(res).toEqual({ hits: [] });
+  });
+
+  it("carries extra filters into every probe", async () => {
+    const { fetchFn } = sequentialFetch([{ hits: [] }, { hits: [] }]);
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    await client.search.byBarcode("033674139417", { status: 1 });
+    const urls = fetchFn.mock.calls.map(([url]) => splitUrl(String(url)));
+    expect(urls[0]?.query).toEqual({ q: '"033674139417"', status: "1" });
+    expect(urls[1]?.query).toEqual({
+      q: '"0 33674 13941 7"',
+      status: "1",
+    });
+  });
+});
+
+describe("DsldClient — labelsAll", () => {
+  it("yields every hit across pages via short-page detection (no total)", async () => {
+    const pages = [
+      { hits: [{ _id: "1" }, { _id: "2" }] },
+      { hits: [{ _id: "3" }] }, // short page ⇒ stop; note: no `total` field
+    ];
+    let call = 0;
+    const fetchFn = vi.fn(async () => {
+      const page = pages[call++] ?? { hits: [] };
+      return new Response(JSON.stringify(page), {
+        status: 200,
+      }) as unknown as Response;
+    });
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    const ids: string[] = [];
+    for await (const hit of client.search.labelsAll({ q: "Vitamin D" }, 2)) {
+      ids.push(hit._id ?? "");
+    }
+    expect(ids).toEqual(["1", "2", "3"]);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("defaults q to '*' when omitted", async () => {
+    const fetchFn = vi.fn(async () => {
+      return new Response(JSON.stringify({ hits: [] }), {
+        status: 200,
+      }) as unknown as Response;
+    });
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    const ids: string[] = [];
+    for await (const hit of client.search.labelsAll({ status: 1 }, 5)) {
+      ids.push(hit._id ?? "");
+    }
+    expect(ids).toEqual([]);
+    const { query } = splitUrl(String(fetchFn.mock.calls[0]?.[0]));
+    expect(query.q).toBe("*");
   });
 });
 

@@ -54,8 +54,12 @@ const results = await client.search.labels({
   sort_order: "desc",
 });
 
-// Look up a label by scanned barcode (handles quoting/encoding for you)
-const match = await client.search.byBarcode("0 33674 13941 7");
+// Term-less, filter-only search (q omitted → client sends "*")
+const onMarket = await client.search.labels({ status: 1 });
+
+// Look up a label by scanned barcode. Handles quoting/encoding and probes
+// UPC spacing variants, so digits-only scans match spaced upcSku values.
+const match = await client.search.byBarcode("033674139417");
 ```
 
 ## Universal runtime notes
@@ -89,13 +93,19 @@ const client = new DsldClient({
 ### `client.label.get(id: number): Promise<Label>`
 
 `GET /v9/label/{id}` — the full label model (ingredients, quantities, claims,
-contacts, serving sizes, events, …).
+contacts, serving sizes, events, …). The response also includes a
+client-derived `thumbnailUrl` (`{baseUrl}/s3/pdf/thumbnails/{id}.jpg`)
+pointing at the label's thumbnail JPEG, since the API's own `thumbnail`
+field is returned empty. Note the underlying image may 404 for labels
+without a stored thumbnail.
 
 ```ts
 const label = await client.label.get(82118);
 label.ingredientRows?.forEach((row) => {
   console.log(row.name, row.quantity?.[0]?.quantity, row.quantity?.[0]?.unit);
 });
+console.log(label.thumbnailUrl);
+// "https://api.ods.od.nih.gov/dsld/s3/pdf/thumbnails/82118.jpg"
 ```
 
 ### `client.products` — product listings
@@ -142,7 +152,7 @@ for await (const hit of client.ingredients.groupsAll({ method: "by_letter", term
 ```ts
 // GET /v9/search-filter — complex combination of terms & filters
 const res = await client.search.labels({
-  q: "Strontium",                 // required; use "*" for term-less search
+  q: "Strontium",                 // optional; omit for term-less search ("*")
   status: 2,                       // 0 = off market, 1 = on market, 2 = all
   date_start: 2020,
   date_end: 2024,
@@ -160,11 +170,27 @@ const res = await client.search.labels({
   sort_order: "desc",              // "asc" | "desc"
 });
 
+// Term-less, filter-only search — q defaults to "*"
+await client.search.labels({ status: 1, supplement_form: "e0161" });
+
 // GET /v9/search-filter-histogram — yearly buckets of labels added to DSLD
 const buckets = await client.search.histogram({ q: "Strontium" });
 
-// Barcode / UPC search (quotes + encodes the barcode for exact upcSku match)
-await client.search.byBarcode("0 33674 13941 7", { status: 1 });
+// Barcode / UPC search. DSLD stores upcSku inconsistently (some records
+// spaced like "0 33674 13941 7", some digits-only like "80004843"), and the
+// API's exact-phrase match is token-based — one form can't match the other.
+// byBarcode quotes + encodes each representation and probes them in order
+// (as-passed → digits-only → GS1-spaced) until one returns hits.
+await client.search.byBarcode("033674139417", { status: 1 });
+```
+
+`search-filter` returns **no `total`**, so end-of-results must be detected by
+short pages. `labelsAll` does that bookkeeping for you:
+
+```ts
+for await (const hit of client.search.labelsAll({ q: "Vitamin D" }, 500)) {
+  console.log(hit._source?.fullName);
+}
 ```
 
 ## Code enums
@@ -183,6 +209,23 @@ import {
 console.log(PRODUCT_TYPE_CODES.a1302);        // "Amino Acid/Protein"
 const code: ProductTypeCode = "a1302";        // OK
 ```
+
+### Reverse lookup: `codeFor`
+
+`codeFor` maps a friendly term back to a code — exact code, exact
+description, then substring (all case-insensitive):
+
+```ts
+import { SUPPLEMENT_FORM_CODES, codeFor } from "@knorby/nih-dsld-client";
+
+codeFor(SUPPLEMENT_FORM_CODES, "e0161");           // "e0161" (exact key)
+codeFor(SUPPLEMENT_FORM_CODES, "Softgel Capsules"); // "e0161" (exact description)
+codeFor(SUPPLEMENT_FORM_CODES, "softgel");          // "e0161" (substring)
+codeFor(SUPPLEMENT_FORM_CODES, "tablet");           // "e0155"
+```
+
+Returns the first match in the map's declaration order, or `undefined` when
+nothing matches.
 
 | Enum                | Const map                | Type                       |
 | ------------------- | ------------------------ | -------------------------- |
@@ -221,14 +264,20 @@ returns `429` with a `Retry-After` header, surfaced as
 ## Error handling
 
 ```ts
-import { DsldApiError, DsldTimeoutError, DsldError } from "@knorby/nih-dsld-client";
+import {
+  DsldApiError,
+  DsldTimeoutError,
+  DsldError,
+  HTTP_BAD_INPUT,
+  HTTP_TOO_MANY_REQUESTS,
+} from "@knorby/nih-dsld-client";
 
 try {
   await client.label.get(id);
 } catch (err) {
   if (err instanceof DsldApiError) {
     console.error(`API ${err.status}`, err.body);
-    if (err.status === 429) {
+    if (err.status === HTTP_TOO_MANY_REQUESTS) {
       console.log(`retry after ${err.retryAfterSeconds}s`);
     }
   } else if (err instanceof DsldTimeoutError) {
@@ -238,6 +287,10 @@ try {
   }
 }
 ```
+
+`HTTP_TOO_MANY_REQUESTS` (`429`) and `HTTP_BAD_INPUT` (`500` — the DSLD
+Swagger spec documents `500` rather than `400` for bad input parameters) are
+exported for matching these documented statuses without magic numbers.
 
 ## Pagination
 
@@ -250,13 +303,20 @@ for await (const hit of client.brands.browseAll({ method: "by_letter", q: "A" })
   // fetches the next page lazily as you iterate
 }
 
+// search-filter pages the same way but returns no `total`; labelsAll
+// detects the end of results via short pages.
+for await (const hit of client.search.labelsAll({ status: 1 })) {
+  // ...
+}
+
 // Or paginate manually:
 let from = 0;
 const size = 100;
 const page = await client.brands.browse({ method: "by_letter", q: "A", from, size });
 ```
 
-The exported `paginate()` helper lets you wrap any page-fetching function:
+The exported `paginate()` helper lets you wrap any page-fetching function
+(it also works with `total`-less results, stopping on short pages):
 
 ```ts
 import { paginate } from "@knorby/nih-dsld-client";

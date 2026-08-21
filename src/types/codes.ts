@@ -184,3 +184,42 @@ export const APPLY_SYNONYMS = {
 
 export type ApplySynonyms =
   (typeof APPLY_SYNONYMS)[keyof typeof APPLY_SYNONYMS];
+
+/**
+ * Reverse-lookup helper for the const description maps in this module:
+ * maps a friendly term back to a code.
+ *
+ * Matching proceeds in priority order (all case-insensitive and trimmed):
+ *
+ * 1. Exact code (map key) — `codeFor(SUPPLEMENT_FORM_CODES, "e0161")`
+ * 2. Exact description — `codeFor(SUPPLEMENT_FORM_CODES, "Softgel Capsules")`
+ * 3. Substring of a description — `codeFor(SUPPLEMENT_FORM_CODES, "softgel")`
+ *
+ * Returns the first match in the map's declaration order, or `undefined`
+ * when nothing matches. Only description maps (code → string) are
+ * supported; value enums like {@link MARKET_STATUS} have no descriptions.
+ *
+ * @example
+ * ```ts
+ * codeFor(SUPPLEMENT_FORM_CODES, "softgel"); // "e0161"
+ * codeFor(PRODUCT_TYPE_CODES, "botanical"); // "a1306"
+ * codeFor(CLAIM_TYPE_CODES, "p0265"); // "p0265" (exact key)
+ * ```
+ */
+export function codeFor<T extends Record<string, string>>(
+  codes: T,
+  term: string,
+): keyof T | undefined {
+  const needle = term.trim().toLowerCase();
+  if (needle === "") return undefined;
+  for (const key of Object.keys(codes)) {
+    if (key.toLowerCase() === needle) return key as keyof T;
+  }
+  for (const [key, description] of Object.entries(codes)) {
+    if (description.trim().toLowerCase() === needle) return key as keyof T;
+  }
+  for (const [key, description] of Object.entries(codes)) {
+    if (description.toLowerCase().includes(needle)) return key as keyof T;
+  }
+  return undefined;
+}

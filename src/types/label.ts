@@ -188,7 +188,22 @@ export interface Label {
   upcSku?: string;
   productVersionCode?: string;
   pdf?: string;
+  /**
+   * The API's own thumbnail field — observed empty in live responses. Use
+   * {@link Label.thumbnailUrl} instead, which the client derives from `id`.
+   */
   thumbnail?: string;
+  /**
+   * Absolute URL of the label's thumbnail JPEG
+   * (`{baseUrl}/s3/pdf/thumbnails/{id}.jpg`, e.g.
+   * `https://api.ods.od.nih.gov/dsld/s3/pdf/thumbnails/185040.jpg`).
+   *
+   * Derived by the client from the label `id` — the API does not return a
+   * usable thumbnail URL ({@link Label.thumbnail} is empty) — and is always
+   * populated on the {@link Label} returned by `client.label.get()`. The
+   * underlying image may still 404 for labels without a stored thumbnail.
+   */
+  thumbnailUrl?: string;
   servingsPerContainer?: string;
   hasOuterCarton?: boolean;
   percentDvFootnote?: string;

@@ -109,6 +109,16 @@ export class DsldRequester {
     }
   }
 
+  /**
+   * Builds an absolute URL for a static asset served under the base URL
+   * (outside the `/v9` API namespace), e.g. label thumbnail JPEGs under
+   * `/s3/pdf/thumbnails/`. Respects a custom {@link DsldClientConfig.baseUrl}
+   * so proxies keep working.
+   */
+  assetUrl(path: string): string {
+    return `${this.baseUrl}/${path.replace(/^\/+/, "")}`;
+  }
+
   private buildUrl(path: string, params?: object): string {
     const cleanPath = path.replace(/^\/+/, "");
     const base = `${this.baseUrl}/${cleanPath}`;
