@@ -130,14 +130,22 @@ export class LabelNamespace {
   /**
    * Retrieves a single label by its DSLD ID (`GET /v9/label/{id}`).
    *
+   * The returned {@link Label} includes a client-derived `thumbnailUrl`
+   * (`{baseUrl}/s3/pdf/thumbnails/{id}.jpg`) pointing at the label's
+   * thumbnail JPEG — the API's own `thumbnail` field is returned empty.
+   *
    * @param id The DSLD (label) ID.
    * @example
    * ```ts
    * const label = await client.label.get(82118);
    * ```
    */
-  get(id: number): Promise<Label> {
-    return this.requester.get<Label>(`v9/label/${id}`);
+  async get(id: number): Promise<Label> {
+    const label = await this.requester.get<Label>(`v9/label/${id}`);
+    return {
+      ...label,
+      thumbnailUrl: this.requester.assetUrl(`s3/pdf/thumbnails/${id}.jpg`),
+    };
   }
 }
 

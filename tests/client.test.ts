@@ -63,6 +63,15 @@ describe("DsldClient — URL building", () => {
     expect(calls[0]?.url).toBe(`${BASE}/v9/label/82118`);
   });
 
+  it("label.get derives thumbnailUrl from the id and base URL", async () => {
+    const { fetchFn } = mockFetch({ body: { id: 185040, thumbnail: "" } });
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    const label = await client.label.get(185040);
+    expect(label.thumbnailUrl).toBe(`${BASE}/s3/pdf/thumbnails/185040.jpg`);
+    // The API's own (empty) thumbnail field is passed through untouched.
+    expect(label.thumbnail).toBe("");
+  });
+
   it("products.byBrand passes q as a query param", async () => {
     const { fetchFn, calls } = mockFetch({ body: { hits: [] } });
     const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });

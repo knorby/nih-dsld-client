@@ -11,7 +11,9 @@ evolve.
 The lightweight, namespaced client surface mirrors the DSLD v9 endpoints:
 
 - `client.version.get()` — API version metadata
-- `client.label.get(id)` — full label by DSLD ID
+- `client.label.get(id)` — full label by DSLD ID; the response includes a
+  client-derived `thumbnailUrl` (`{baseUrl}/s3/pdf/thumbnails/{id}.jpg`)
+  because the API's own `thumbnail` field is returned empty
 - `client.products.byBrand(...)` / `client.products.browse(...)` /
   `client.products.browseAll(...)` — brand-products + browse-products
 - `client.brands.browse(...)` / `client.brands.browseAll(...)` — browse-brands

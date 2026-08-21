@@ -93,13 +93,19 @@ const client = new DsldClient({
 ### `client.label.get(id: number): Promise<Label>`
 
 `GET /v9/label/{id}` — the full label model (ingredients, quantities, claims,
-contacts, serving sizes, events, …).
+contacts, serving sizes, events, …). The response also includes a
+client-derived `thumbnailUrl` (`{baseUrl}/s3/pdf/thumbnails/{id}.jpg`)
+pointing at the label's thumbnail JPEG, since the API's own `thumbnail`
+field is returned empty. Note the underlying image may 404 for labels
+without a stored thumbnail.
 
 ```ts
 const label = await client.label.get(82118);
 label.ingredientRows?.forEach((row) => {
   console.log(row.name, row.quantity?.[0]?.quantity, row.quantity?.[0]?.unit);
 });
+console.log(label.thumbnailUrl);
+// "https://api.ods.od.nih.gov/dsld/s3/pdf/thumbnails/82118.jpg"
 ```
 
 ### `client.products` — product listings
