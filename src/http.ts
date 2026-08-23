@@ -1,6 +1,16 @@
 import { DEFAULT_BASE_URL, DEFAULT_TIMEOUT_MS } from "./constants";
-import { DsldApiError, DsldNetworkError, DsldTimeoutError } from "./errors";
+import {
+  DsldApiError,
+  DsldError,
+  DsldNetworkError,
+  DsldTimeoutError,
+} from "./errors";
 import { buildQueryString, mergeParams } from "./utils/serialize";
+
+/** Replaces the `api_key` query value with `[redacted]` in a URL. */
+function redactApiKey(url: string): string {
+  return url.replace(/([?&]api_key=)[^&]*/, "$1[redacted]");
+}
 
 /**
  * A `fetch`-compatible function. The DSLD client uses the standard Web
@@ -46,6 +56,10 @@ export interface DsldClientConfig {
    * Default `User-Agent` header. Some servers/proxies require one. Defaults
    * to `@knorby/nih-dsld-client/<version>`; the version is resolved at
    * build time when available.
+   *
+   * @note Browsers treat `User-Agent` as a forbidden header and silently
+   *   strip it, so the value is only sent in runtimes that allow setting
+   *   it (Node, Bun, Deno, React Native).
    */
   userAgent?: string;
 }
@@ -72,18 +86,34 @@ export class DsldRequester {
     this.baseUrl = (config.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
     this.apiKey = config.apiKey;
     this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.fetchFn = config.fetch ?? globalThis.fetch;
     this.userAgent = config.userAgent ?? CLIENT_USER_AGENT;
     this.headers = { ...config.headers };
+
+    // Typed as always-present, but absent in runtimes without global `fetch`.
+    const globalFetch = globalThis.fetch as FetchLike | undefined;
+    // A detached `globalThis.fetch` throws `TypeError: Illegal invocation` in
+    // browsers (Web IDL requires the global receiver), so bind it. Injected
+    // implementations are used as-is.
+    const fetchImpl = config.fetch ?? globalFetch?.bind(globalThis);
+    if (typeof fetchImpl !== "function") {
+      throw new DsldError(
+        "No `fetch` implementation available. This runtime does not expose a global `fetch`. " +
+          "Pass one via the client config, e.g. `new DsldClient({ fetch: myFetch })`.",
+      );
+    }
+    this.fetchFn = fetchImpl;
   }
 
   /**
    * Performs a `GET` request and returns the parsed JSON body.
    *
+   * An empty 2xx body resolves to `null`; a non-JSON 2xx body rejects.
+   *
    * @param path Path under the base URL (e.g. `"v9/label/25"` or `"version"`).
    * @param params Query parameters (serialized by {@link buildQueryString}).
    * @throws {DsldTimeoutError} when the request exceeds `timeoutMs`.
    * @throws {DsldApiError} for any non-2xx response.
+   * @throws {DsldError} for a 2xx response with a non-JSON body.
    * @throws {DsldNetworkError} for a transport-level failure.
    */
   async get<TR>(path: string, params?: object): Promise<TR> {
@@ -102,8 +132,8 @@ export class DsldRequester {
       if (controller.signal.aborted && !(err instanceof DsldApiError)) {
         throw new DsldTimeoutError(this.timeoutMs);
       }
-      if (err instanceof DsldApiError) throw err;
-      throw new DsldNetworkError(url, err);
+      if (err instanceof DsldError) throw err;
+      throw new DsldNetworkError(redactApiKey(url), err);
     } finally {
       clearTimeout(timer);
     }
@@ -149,15 +179,18 @@ export class DsldRequester {
         status: response.status,
         body: bodyText,
         retryAfterSeconds,
-        url,
+        // Redacted so logged errors cannot leak the caller's data.gov key.
+        url: redactApiKey(url),
       });
     }
     if (bodyText === "") return null;
     try {
       return JSON.parse(bodyText);
     } catch {
-      // Non-JSON 2xx body — return as-is rather than throw.
-      return bodyText;
+      const contentType = response.headers.get("content-type") ?? "unknown";
+      throw new DsldError(
+        `DSLD API returned a non-JSON body (${contentType}): ${bodyText.slice(0, 120)}`,
+      );
     }
   }
 

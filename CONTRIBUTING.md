@@ -5,8 +5,9 @@ workflow, and how to publish releases.
 
 ## Prerequisites
 
-- **Node.js 22+** (use [nvm](https://github.com/nvm-sh/nvm) or
-  [fnm](https://github.com/Schniz/fnm); this repo includes an `.nvmrc`)
+- **Node.js 22+** for development (the published package supports Node 18+;
+  `.nvmrc` pins the dev toolchain). Use [nvm](https://github.com/nvm-sh/nvm)
+  or [fnm](https://github.com/Schniz/fnm).
 - **npm** (bundled with Node)
 - **pre-commit** — `pipx install pre-commit` or `brew install pre-commit`
 - **gitleaks** — `brew install gitleaks` (secret scanner for pre-commit)
@@ -16,8 +17,8 @@ workflow, and how to publish releases.
 ## Getting started
 
 ```bash
-git clone <repo-url>
-cd <repo-name>
+git clone https://github.com/knorby/nih-dsld-client.git
+cd nih-dsld-client
 nvm use              # or: fnm use
 npm install          # installs deps (prepare blocked by .npmrc ignore-scripts)
 npx husky            # sets up Husky hooks (run after npm install)
@@ -75,9 +76,9 @@ Common types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`,
 
 Examples:
 ```
-feat(auth): add token refresh logic
-fix: handle null response from API
-docs: update README with publish instructions
+feat(search): probe UPC spacing variants in byBarcode
+fix: clamp paginate size to the server's 1000 cap
+docs: update README with test:live instructions
 ```
 
 ## Versioning and releases
@@ -99,17 +100,19 @@ Select the bump type (patch/minor/major) and write a short summary. A new
 
 ### Releasing
 
-**Manual release:**
+**Automated release (GitHub Actions — default):**
+The `release.yml` workflow runs on every push to `main`. When pending
+changesets exist, the changesets action opens a "Version Packages" PR;
+merging it publishes to npm and creates a GitHub Release. When no changesets
+are pending, the workflow is a no-op (already-published versions are skipped).
+Requires the `NPM_TOKEN` repository secret.
+
+**Manual release (fallback):**
 ```bash
 npx changeset version    # bumps package.json + generates CHANGELOG.md
 npm run release          # builds + publishes to npm
 git add . && git commit -m "chore: release" && git push
 ```
-
-**Automated release (GitHub Actions):**
-Enable the `release.yml` workflow (change the trigger from `workflow_dispatch`
-to `push: branches: [main]`). The changesets action will open a "Version
-Packages" PR; merging it publishes to npm and creates a GitHub Release.
 
 ### Before publishing, always verify
 
@@ -125,10 +128,10 @@ npm pack --dry-run    # verify only dist/ + docs are included
   publish-only, time-limited). Classic tokens were revoked in December 2025.
 - **Provenance** — this repo publishes with `--provenance` (cryptographic
   attestation linking the published package to the commit + workflow).
-- **Scoped names** — use `@yourscope/package` names to prevent dependency
-  confusion attacks.
+- **Scoped names** — this package uses the `@knorby` scope, which prevents
+  dependency-confusion attacks.
 - **No secrets in the package** — the `files` field in `package.json`
-  whitelists only `dist`, `README.md`, and `CHANGELOG.md`.
+  whitelists only `dist`, `README.md`, `CHANGELOG.md`, and `LICENSE`.
 
 ## Pull request process
 

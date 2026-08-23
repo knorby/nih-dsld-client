@@ -40,7 +40,9 @@ const description maps so every option is discoverable in the editor.
 Before installing git hooks, ensure the following are available on the
 system:
 
-1. **Node.js 22+** — use [nvm](https://github.com/nvm-sh/nvm) or
+1. **Node.js 22+** for development (the published package supports Node 18+;
+   `.nvmrc` pins the dev toolchain) — use [nvm](https://github.com/nvm-sh/nvm)
+   or
    [fnm](https://github.com/Schniz/fnm); this repo includes an `.nvmrc`.
 2. **npm** — bundled with Node.
 3. **pre-commit** — install via `pipx install pre-commit` or
@@ -105,6 +107,7 @@ scanning). Both are needed for full coverage.
 | `npm test` | Run tests once (Vitest) |
 | `npm run test:watch` | Run tests in watch mode |
 | `npm run test:coverage` | Run tests with coverage reporting |
+| `npm run test:live` | Opt-in live smoke tests against the real DSLD API |
 | `npx changeset` | Create a changeset (required for any change that affects published output) |
 
 ---
@@ -143,10 +146,12 @@ PRs and release them all at once.
   `.changeset/*.md` file alongside the code change.
 - **To release**: `npx changeset version` (bumps `package.json` +
   `CHANGELOG.md`), then `npm run release` (builds + publishes).
-- **GitHub Actions release** (`.github/workflows/release.yml`): disabled by
-  default (`workflow_dispatch` only). To enable automated releases, change the
-  trigger to `push: branches: [main]`. The changesets action opens a "Version
-  Packages" PR; merging it publishes to npm + creates a GitHub Release.
+- **GitHub Actions release** (`.github/workflows/release.yml`): runs on every
+  push to `main` (plus manual `workflow_dispatch`). With pending changesets,
+  the changesets action opens a "Version Packages" PR; merging it publishes
+  to npm + creates a GitHub Release. With no pending changesets, the publish
+  command runs and skips versions already on the registry. Requires the
+  `NPM_TOKEN` repository secret.
 - **Always verify before publishing**: `npm run build && npm pack --dry-run`
   to confirm only `dist/` + docs are included.
 

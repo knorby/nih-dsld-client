@@ -1,4 +1,4 @@
-import { DEFAULT_PAGE_SIZE } from "../constants";
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "../constants";
 import type { Hit, ResultList, SearchTotal } from "../types/common";
 
 /** A single query parameter value (after arrays are expanded). */
@@ -47,12 +47,16 @@ function encodeValue(value: unknown): string | undefined {
  * Merges a base params object with extra params (extra wins). Returns a plain
  * record safe to pass to {@link buildQueryString}. Used to fold in the API
  * key and barcode wrappers.
+ *
+ * The accumulator uses a null prototype so a caller-supplied `"__proto__"`
+ * key (e.g. from `JSON.parse`) becomes a regular own property instead of
+ * triggering the `Object.prototype.__proto__` setter and being dropped.
  */
 export function mergeParams(
   base: object | undefined,
   extra: Record<string, unknown>,
 ): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
+  const out: Record<string, unknown> = Object.create(null);
   if (base) Object.assign(out, base);
   Object.assign(out, extra);
   return out;
@@ -67,7 +71,10 @@ export function mergeParams(
  * string (e.g. `"0 33674 13941 7"`).
  */
 export function wrapBarcode(barcode: string): string {
-  return `"${barcode}"`;
+  // A UPC/EAN never legitimately contains double quotes; strip any (e.g.
+  // scanner noise) so they cannot break the exact-phrase semantics of the
+  // quoted query.
+  return `"${barcode.replace(/"/g, "")}"`;
 }
 
 /**
@@ -121,6 +128,15 @@ function groupBarcode(digits: string): string {
  * `search-filter`): pagination then relies purely on short-page detection,
  * issuing at most one extra request past the final page.
  *
+ * `size` is clamped to {@link MAX_PAGE_SIZE} (1000): the server silently
+ * caps page sizes, and an unclamped larger request would come back as a
+ * "short" page and end iteration after page one. Non-positive or fractional
+ * sizes throw a `RangeError`.
+ *
+ * Note: the server (Elasticsearch) rejects `from` offsets beyond 10,000
+ * (`max_result_window`), so iterating result sets larger than that will
+ * surface as a `DsldApiError` rather than complete.
+ *
  * @example
  * ```ts
  * for await (const hit of paginate({ fetchPage: (from, size) =>
@@ -136,7 +152,12 @@ export async function* paginate<T>({
   fetchPage: (from: number, size: number) => Promise<ResultList<T>>;
   size?: number;
 }): AsyncGenerator<Hit<T>> {
-  const pageSize = size ?? DEFAULT_PAGE_SIZE;
+  if (size !== undefined && (!Number.isInteger(size) || size < 1)) {
+    throw new RangeError(
+      `paginate: \`size\` must be a positive integer, got ${size}`,
+    );
+  }
+  const pageSize = Math.min(size ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
   let from = 0;
   let seen = 0;
   let total: SearchTotal | undefined;
@@ -155,7 +176,8 @@ export async function* paginate<T>({
     if (
       total !== undefined &&
       total.relation === "eq" &&
-      seen >= (total.value ?? 0)
+      typeof total.value === "number" &&
+      seen >= total.value
     ) {
       return;
     }

@@ -1,13 +1,17 @@
 name: Release
 
-# Disabled by default — manual trigger only.
-# To enable automated releases on every merge to main, change the trigger to:
-#   on:
-#     push:
-#       branches: [main]
-# Then the changesets action will open a "Version Packages" PR that publishes
-# on merge.
+# Runs on every push to main (and manually via workflow_dispatch).
+#
+# - Pending changesets → the changesets action opens a "Version Packages" PR;
+#   merging it publishes to npm and creates a GitHub Release.
+# - No pending changesets → the publish command runs anyway and skips
+#   versions already on the registry (e.g. the initial 0.1.0 publish).
+#
+# Requires the NPM_TOKEN repository secret (granular access token with
+# publish rights to the @knorby scope, 2FA bypass enabled).
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
@@ -16,15 +20,16 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
       id-token: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: ".nvmrc"
           cache: npm
@@ -32,7 +37,7 @@ jobs:
       - run: npm ci
       - name: Create Release Pull Request or Publish
         id: changesets
-        uses: changesets/action@v2
+        uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1 # v2.1.1
         with:
           publish: npm run release
         env:

@@ -49,7 +49,10 @@ export class DsldApiError extends DsldError {
    * `429` responses). `undefined` when the header is absent or unparsable.
    */
   readonly retryAfterSeconds: number | undefined;
-  /** The URL that was requested. */
+  /**
+   * The URL that was requested, with the `api_key` query value redacted so
+   * logging the error cannot leak the caller's data.gov key.
+   */
   readonly url: string;
 
   constructor(params: {
@@ -78,9 +81,16 @@ export class DsldApiError extends DsldError {
  * `cause`.
  */
 export class DsldNetworkError extends DsldError {
+  /**
+   * The URL that was requested, with the `api_key` query value redacted so
+   * logging the error cannot leak the caller's data.gov key.
+   */
+  readonly url: string;
+
   constructor(url: string, cause: unknown) {
     super(`DSLD network failure for ${url}`, { cause });
     this.name = "DsldNetworkError";
+    this.url = url;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }

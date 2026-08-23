@@ -38,7 +38,7 @@ export interface BrowseParams {
   method: BrowseMethod;
   /**
    * Query term; single letter, keyword, or `"Other"` (names beginning with a
-   * digit). Optional for `factsheet` on ingredient-groups.
+   * digit). Treated as required by the API in practice.
    */
   q?: string;
   /** Start record for pagination. @default 0 */
@@ -134,13 +134,20 @@ export class LabelNamespace {
    * (`{baseUrl}/s3/pdf/thumbnails/{id}.jpg`) pointing at the label's
    * thumbnail JPEG — the API's own `thumbnail` field is returned empty.
    *
-   * @param id The DSLD (label) ID.
+   * @param id The DSLD (label) ID — a positive integer.
+   * @throws {RangeError} for non-positive-integer ids (they are interpolated
+   *   into the request path, so they are validated rather than encoded).
    * @example
    * ```ts
    * const label = await client.label.get(82118);
    * ```
    */
   async get(id: number): Promise<Label> {
+    if (!Number.isInteger(id) || id < 1) {
+      throw new RangeError(
+        `label.get: \`id\` must be a positive integer DSLD label ID, got ${id}`,
+      );
+    }
     const label = await this.requester.get<Label>(`v9/label/${id}`);
     return {
       ...label,
@@ -156,7 +163,7 @@ export class ProductsNamespace {
   /**
    * Lists products for a given brand (`GET /v9/brand-products`).
    *
-   * @param params.brand `q` — the brand name to list products for (required).
+   * @param params.q The brand name to list products for (required).
    */
   byBrand(params: BrandProductsParams): Promise<BrandProductsResult> {
     return this.requester.get<BrandProductsResult>("v9/brand-products", params);

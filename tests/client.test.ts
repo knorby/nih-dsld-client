@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { DsldApiError, DsldClient, DsldTimeoutError } from "../src/index";
+import {
+  DsldApiError,
+  DsldClient,
+  DsldError,
+  DsldNetworkError,
+  DsldTimeoutError,
+} from "../src/index";
 
 /** Builds a `fetch` mock that records requested URLs and returns canned JSON. */
 function mockFetch(opts: {
@@ -7,12 +13,11 @@ function mockFetch(opts: {
   body?: unknown;
   text?: string;
   headers?: Record<string, string>;
-  ignoreSignal?: boolean;
 }) {
   const calls: { url: string; init?: RequestInit } = [];
   const fetchFn = vi.fn(async (url: string | URL, init?: RequestInit) => {
     calls.push({ url: String(url), init });
-    if (!opts.ignoreSignal && init?.signal) {
+    if (init?.signal) {
       const signal = init.signal as AbortSignal;
       if (signal.aborted) {
         throw Object.assign(new Error("aborted"), { name: "AbortError" });
@@ -76,34 +81,36 @@ describe("DsldClient — URL building", () => {
     const { fetchFn, calls } = mockFetch({ body: { hits: [] } });
     const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
     await client.products.byBrand({ q: "Health", size: 10 });
-    expect(calls[0]?.url).toBe(`${BASE}/v9/brand-products?q=Health&size=10`);
+    const { path, query } = splitUrl(calls[0]?.url ?? "");
+    expect(path).toBe(`${BASE}/v9/brand-products`);
+    expect(query).toEqual({ q: "Health", size: "10" });
   });
 
   it("products.browse encodes method and q", async () => {
     const { fetchFn, calls } = mockFetch({ body: { hits: [] } });
     const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
     await client.products.browse({ method: "by_letter", q: "V" });
-    expect(calls[0]?.url).toBe(
-      `${BASE}/v9/browse-products?method=by_letter&q=V`,
-    );
+    const { path, query } = splitUrl(calls[0]?.url ?? "");
+    expect(path).toBe(`${BASE}/v9/browse-products`);
+    expect(query).toEqual({ method: "by_letter", q: "V" });
   });
 
   it("brands.browse builds the browse-brands URL", async () => {
     const { fetchFn, calls } = mockFetch({ body: { hits: [] } });
     const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
     await client.brands.browse({ method: "by_keyword", q: "Health" });
-    expect(calls[0]?.url).toBe(
-      `${BASE}/v9/browse-brands?method=by_keyword&q=Health`,
-    );
+    const { path, query } = splitUrl(calls[0]?.url ?? "");
+    expect(path).toBe(`${BASE}/v9/browse-brands`);
+    expect(query).toEqual({ method: "by_keyword", q: "Health" });
   });
 
   it("ingredients.groups encodes term and method", async () => {
     const { fetchFn, calls } = mockFetch({ body: { hits: [] } });
     const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
     await client.ingredients.groups({ term: "Z", method: "by_letter" });
-    expect(calls[0]?.url).toBe(
-      `${BASE}/v9/ingredient-groups?term=Z&method=by_letter`,
-    );
+    const { path, query } = splitUrl(calls[0]?.url ?? "");
+    expect(path).toBe(`${BASE}/v9/ingredient-groups`);
+    expect(query).toEqual({ term: "Z", method: "by_letter" });
   });
 
   it("strips trailing slashes from baseUrl", async () => {
@@ -320,9 +327,27 @@ describe("DsldClient — api key", () => {
       fetch: fetchFn,
     });
     await client.brands.browse({ method: "by_letter", q: "A" });
-    expect(calls[0]?.url).toBe(
-      `${BASE}/v9/browse-brands?method=by_letter&q=A&api_key=secret-key`,
-    );
+    const { query } = splitUrl(calls[0]?.url ?? "");
+    expect(query).toEqual({
+      method: "by_letter",
+      q: "A",
+      api_key: "secret-key",
+    });
+  });
+
+  it("redacts api_key from DsldApiError.url and message", async () => {
+    const { fetchFn } = mockFetch({ status: 500, text: "bad input" });
+    const client = new DsldClient({
+      baseUrl: BASE,
+      apiKey: "secret-key",
+      fetch: fetchFn,
+    });
+    const error = await client.version
+      .get()
+      .catch((e: unknown) => e as DsldApiError);
+    expect(error).toBeInstanceOf(DsldApiError);
+    expect(error.url).toBe(`${BASE}/version?api_key=[redacted]`);
+    expect(error.message).not.toContain("secret-key");
   });
 });
 
@@ -420,6 +445,60 @@ describe("DsldClient — errors", () => {
       timeoutMs: 10,
     });
     await expect(client.version.get()).rejects.toBeInstanceOf(DsldTimeoutError);
+  });
+
+  it("wraps transport failures in DsldNetworkError with url and cause", async () => {
+    const cause = new TypeError("fetch failed");
+    const fetchFn = vi.fn(async () => {
+      throw cause;
+    });
+    const client = new DsldClient({
+      baseUrl: BASE,
+      apiKey: "secret-key",
+      fetch: fetchFn,
+    });
+    const error = await client.version
+      .get()
+      .catch((e: unknown) => e as DsldNetworkError);
+    expect(error).toBeInstanceOf(DsldNetworkError);
+    expect(error).toBeInstanceOf(DsldError);
+    expect(error.url).toBe(`${BASE}/version?api_key=[redacted]`);
+    expect(error.cause).toBe(cause);
+  });
+
+  it("rejects with DsldError for a non-JSON 2xx body", async () => {
+    const { fetchFn } = mockFetch({ status: 200, text: "<html>proxy</html>" });
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    const error = await client.version
+      .get()
+      .catch((e: unknown) => e as DsldError);
+    expect(error).toBeInstanceOf(DsldError);
+    expect(error).not.toBeInstanceOf(DsldApiError);
+    expect(error.message).toContain("non-JSON");
+  });
+
+  it("resolves null for an empty 2xx body", async () => {
+    const { fetchFn } = mockFetch({ status: 200, text: "" });
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    await expect(client.version.get()).resolves.toBeNull();
+  });
+
+  it("rejects non-positive-integer label ids without fetching", async () => {
+    const { fetchFn } = mockFetch({ body: { id: 1 } });
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    await expect(client.label.get(Number.NaN)).rejects.toThrow(RangeError);
+    await expect(client.label.get(0)).rejects.toThrow(RangeError);
+    await expect(client.label.get(1.5)).rejects.toThrow(RangeError);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("throws a descriptive error when no fetch exists in the runtime", () => {
+    vi.stubGlobal("fetch", undefined);
+    try {
+      expect(() => new DsldClient({ baseUrl: BASE })).toThrow(DsldError);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("sets a default User-Agent header", async () => {
