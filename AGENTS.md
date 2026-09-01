@@ -147,11 +147,17 @@ PRs and release them all at once.
 - **To release**: `npx changeset version` (bumps `package.json` +
   `CHANGELOG.md`), then `npm run release` (builds + publishes).
 - **GitHub Actions release** (`.github/workflows/release.yml`): runs on every
-  push to `main` (plus manual `workflow_dispatch`). With pending changesets,
-  the changesets action opens a "Version Packages" PR; merging it publishes
-  to npm + creates a GitHub Release. With no pending changesets, the publish
-  command runs and skips versions already on the registry. Requires the
-  `NPM_TOKEN` repository secret.
+  push to `main` (plus manual `workflow_dispatch`). Publishes to npm via
+  **OIDC trusted publishing** — no `NPM_TOKEN` secret. A `select-mode` job
+  picks the mode: pending changesets → `version` job opens/updates a
+  "Version Packages" PR (merging it re-triggers the workflow in publish
+  mode); no changesets + a version not yet on npm → `pack` builds, then
+  `publish` publishes via OIDC, pushes git tags, and creates a GitHub
+  Release; otherwise everything downstream is skipped (no-op). One-time
+  prerequisites: a GitHub environment named `release` and a matching npm
+  trusted publisher (repository + workflow path + environment must match
+  exactly). The publish job pins Node 24 + npm >= 11.5.1 for the OIDC token
+  exchange (Node 22's bundled npm 10.x cannot do it).
 - **Always verify before publishing**: `npm run build && npm pack --dry-run`
   to confirm only `dist/` + docs are included.
 
@@ -159,9 +165,10 @@ PRs and release them all at once.
 
 - **2FA** — enable on npm account: `npm profile enable-2fa auth-and-writes`.
   Do not publish without 2FA.
-- **Granular tokens** — use npm Granular Access Tokens (scoped to the
-  package, publish-only, time-limited). Classic tokens were revoked in
-  December 2025.
+- **Granular tokens** — the release workflow uses OIDC trusted publishing
+  (no token stored in the repo). For manual publishes, use npm Granular
+  Access Tokens (scoped to the package, publish-only, time-limited). Classic
+  tokens were revoked in December 2025.
 - **Provenance** — `publishConfig.provenance: true` in `package.json` enables
   npm provenance attestation (cryptographic link to commit + workflow).
 - **Scoped names** — use `@yourscope/package` names to prevent dependency
