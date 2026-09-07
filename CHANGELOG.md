@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1
+
+### Patch Changes
+
+- 4f9b458: Dependency updates
+
 ## @knorby/nih-dsld-client@0.1.0
 
 ### Minor Changes

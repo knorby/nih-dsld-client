@@ -1,6 +1,6 @@
 {
   "name": "@knorby/nih-dsld-client",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A fully-typed, zero-dependency TypeScript client for the NIH Dietary Supplement Label Database (DSLD) v9 REST API. Universal: Node, React Native, browsers, Bun, and Deno.",
   "type": "module",
   "main": "./dist/index.cjs",
