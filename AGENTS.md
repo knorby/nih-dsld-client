@@ -123,10 +123,14 @@ scanning). Both are needed for full coverage.
   - `npm run build` (tsup)
   - `npm test` (Vitest)
   - `npm audit --audit-level=moderate` (vulnerability scan)
-- pre-commit hooks (file hygiene + secret scanning) and Husky hooks (Biome +
-  commitlint) run locally only. They are **not** run in GitHub Actions in this
-  template. If CI enforcement is desired, add a workflow that runs
-  `pre-commit run --all-files` and document it here.
+- The **pre-commit suite** (file hygiene + secret scanning) also runs in CI
+  via `.github/workflows/pre-commit.yml` (`pre-commit run --all-files
+  --show-diff-on-failure` with `SKIP=no-commit-to-branch`, which would
+  otherwise always fail on main pushes by design). The workflow installs a
+  system gitleaks binary matching the rev in `.pre-commit-config.yaml`; the
+  trufflehog golang hook uses the Go toolchain preinstalled on
+  ubuntu-latest.
+- Husky hooks (Biome + commitlint) remain local only.
 - Optional security scanning additions (free for public repos): CodeQL
   (<https://github.com/github/codeql-action>), gitleaks-action
   (<https://github.com/gitleaks/gitleaks-action>), Semgrep
