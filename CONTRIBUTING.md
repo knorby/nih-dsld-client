@@ -104,8 +104,10 @@ Select the bump type (patch/minor/major) and write a short summary. A new
 The `release.yml` workflow runs on every push to `main`. When pending
 changesets exist, the changesets action opens a "Version Packages" PR;
 merging it publishes to npm and creates a GitHub Release. When no changesets
-are pending, the workflow is a no-op (already-published versions are skipped).
-Requires the `NPM_TOKEN` repository secret.
+are pending, the workflow is a no-op (already-published versions are
+skipped). Publishing uses **OIDC trusted publishing** — no `NPM_TOKEN`
+secret. Requires a GitHub environment named `release` and a trusted-publisher
+entry on npmjs.com matching this repo, workflow path, and environment.
 
 **Manual release (fallback):**
 ```bash
