@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2
+
+### Patch Changes
+
+- 98e5dd9: Add Codecov coverage reporting and README badges, expand the test suite to
+  full coverage, and refresh dependencies to clear `npm audit` findings.
+
 ## 0.1.1
 
 ### Patch Changes
