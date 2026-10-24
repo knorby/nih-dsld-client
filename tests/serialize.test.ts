@@ -203,6 +203,37 @@ describe("paginate", () => {
     expect(sizes).toEqual([1000]);
   });
 
+  it("treats a page without a hits array as empty", async () => {
+    const gen = paginate<{ _id: string }>({
+      fetchPage: async () => ({}),
+    });
+    const ids: string[] = [];
+    for await (const hit of gen) ids.push(hit._id ?? "");
+    expect(ids).toEqual([]);
+  });
+
+  it("stops at the 100k-record safety cap", async () => {
+    const page = {
+      hits: Array.from({ length: 1000 }, (_, i) => ({ _id: String(i) })),
+    };
+    let calls = 0;
+    const gen = paginate<{ _id: string }>({
+      size: 1000,
+      fetchPage: async (from) => {
+        expect(from).toBe(calls * 1000);
+        calls++;
+        return page;
+      },
+    });
+    let count = 0;
+    for await (const hit of gen) {
+      void hit;
+      count++;
+    }
+    expect(calls).toBe(101);
+    expect(count).toBe(101_000);
+  });
+
   it("rejects non-positive or fractional sizes", async () => {
     for (const bad of [0, -1, 1.5]) {
       const gen = paginate<{ _id: string }>({
@@ -217,7 +248,10 @@ describe("paginate", () => {
 
   it("does not stop early when an eq total carries no value", async () => {
     const pages = [
-      { hits: [{ _id: "1" }, { _id: "2" }], total: { relation: "eq" as const } },
+      {
+        hits: [{ _id: "1" }, { _id: "2" }],
+        total: { relation: "eq" as const },
+      },
       { hits: [{ _id: "3" }] }, // short page ⇒ stop
     ];
     let i = 0;

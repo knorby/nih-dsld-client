@@ -277,6 +277,23 @@ describe("DsldClient — byBarcode variants", () => {
       status: "1",
     });
   });
+
+  it("treats pages without a hits array as empty and keeps probing", async () => {
+    const { fetchFn } = sequentialFetch([{}, {}]);
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    const res = await client.search.byBarcode("033674139417");
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(res).toEqual({});
+  });
+
+  it("queries a quoted empty string when the barcode has no usable digits", async () => {
+    const { fetchFn } = sequentialFetch([{ hits: [] }]);
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    await client.search.byBarcode("   ");
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    const { query } = splitUrl(String(fetchFn.mock.calls[0]?.[0]));
+    expect(query.q).toBe('""');
+  });
 });
 
 describe("DsldClient — labelsAll", () => {
@@ -385,6 +402,63 @@ describe("DsldClient — pagination", () => {
     expect(names).toEqual(["A1", "A2", "A3"]);
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
+
+  it("products.browseAll paginates browse-products", async () => {
+    const pages = [
+      {
+        hits: [
+          { _id: "1", _source: { fullName: "Vitamin A" } },
+          { _id: "2", _source: { fullName: "Vitamin B" } },
+        ],
+      },
+      { hits: [{ _id: "3", _source: { fullName: "Vitamin C" } }] },
+    ];
+    let call = 0;
+    const fetchFn = vi.fn(async (url: string | URL) => {
+      void url;
+      return new Response(JSON.stringify(pages[call++] ?? { hits: [] }), {
+        status: 200,
+      }) as unknown as Response;
+    });
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    const names: string[] = [];
+    for await (const hit of client.products.browseAll(
+      { method: "by_letter", q: "V" },
+      2,
+    )) {
+      names.push(hit._source?.fullName ?? "");
+    }
+    expect(names).toEqual(["Vitamin A", "Vitamin B", "Vitamin C"]);
+    const urls = fetchFn.mock.calls.map(([url]) => splitUrl(String(url)));
+    expect(urls[0]?.path).toBe(`${BASE}/v9/browse-products`);
+    expect(urls[1]?.query).toMatchObject({ from: "2", size: "2" });
+  });
+
+  it("ingredients.groupsAll paginates ingredient-groups", async () => {
+    const pages = [
+      { hits: [{ _id: "1", _source: { name: "Zinc" } }] },
+      { hits: [{ _id: "2", _source: { name: "Zinc Picolinate" } }] },
+    ];
+    let call = 0;
+    const fetchFn = vi.fn(async (url: string | URL) => {
+      void url;
+      return new Response(JSON.stringify(pages[call++] ?? { hits: [] }), {
+        status: 200,
+      }) as unknown as Response;
+    });
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    const names: string[] = [];
+    for await (const hit of client.ingredients.groupsAll(
+      { term: "Zinc", method: "by_keyword" },
+      1,
+    )) {
+      names.push(hit._source?.name ?? "");
+    }
+    expect(names).toEqual(["Zinc", "Zinc Picolinate"]);
+    const urls = fetchFn.mock.calls.map(([url]) => splitUrl(String(url)));
+    expect(urls[0]?.path).toBe(`${BASE}/v9/ingredient-groups`);
+    expect(urls[1]?.query).toMatchObject({ from: "1", size: "1" });
+  });
 });
 
 describe("DsldClient — errors", () => {
@@ -427,6 +501,19 @@ describe("DsldClient — errors", () => {
     await expect(client.version.get()).rejects.toMatchObject({
       status: 429,
       retryAfterSeconds: expect.any(Number),
+    });
+  });
+
+  it("ignores an unparseable Retry-After header", async () => {
+    const { fetchFn } = mockFetch({
+      status: 429,
+      text: "rate limited",
+      headers: { "Retry-After": "later" },
+    });
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    await expect(client.version.get()).rejects.toMatchObject({
+      status: 429,
+      retryAfterSeconds: undefined,
     });
   });
 
@@ -477,6 +564,19 @@ describe("DsldClient — errors", () => {
     expect(error.message).toContain("non-JSON");
   });
 
+  it('labels a missing content-type as "unknown"', async () => {
+    const fetchFn = vi.fn(async () => {
+      const response = new Response("<html>proxy</html>", { status: 200 });
+      response.headers.delete("content-type");
+      return response;
+    });
+    const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
+    const error = await client.version
+      .get()
+      .catch((e: unknown) => e as DsldError);
+    expect(error.message).toContain("(unknown)");
+  });
+
   it("resolves null for an empty 2xx body", async () => {
     const { fetchFn } = mockFetch({ status: 200, text: "" });
     const client = new DsldClient({ baseUrl: BASE, fetch: fetchFn });
@@ -508,5 +608,17 @@ describe("DsldClient — errors", () => {
     const headers = new Headers(calls[0]?.init?.headers);
     expect(headers.get("User-Agent")).toMatch(/^@knorby\/nih-dsld-client\//);
     expect(headers.get("Accept")).toBe("application/json");
+  });
+
+  it("preserves a caller-supplied User-Agent header", async () => {
+    const { fetchFn, calls } = mockFetch({ body: { hits: [] } });
+    const client = new DsldClient({
+      baseUrl: BASE,
+      fetch: fetchFn,
+      headers: { "User-Agent": "custom-agent/1.0" },
+    });
+    await client.version.get();
+    const headers = new Headers(calls[0]?.init?.headers);
+    expect(headers.get("User-Agent")).toBe("custom-agent/1.0");
   });
 });

@@ -121,7 +121,8 @@ scanning). Both are needed for full coverage.
   - `npm run lint` (Biome)
   - `npm run typecheck` (tsc, src + tests)
   - `npm run build` (tsup)
-  - `npm test` (Vitest)
+  - `npm run test:coverage` (Vitest + V8 coverage)
+  - upload `coverage/lcov.info` to Codecov via `codecov/codecov-action`
   - `npm audit --audit-level=moderate` (vulnerability scan)
 - The **pre-commit suite** (file hygiene + secret scanning) also runs in CI
   via `.github/workflows/pre-commit.yml` (`pre-commit run --all-files
@@ -136,6 +137,19 @@ scanning). Both are needed for full coverage.
   (<https://github.com/gitleaks/gitleaks-action>), Semgrep
   (<https://github.com/returntocorp/semgrep-action>). Add workflows in
   `.github/workflows/` if desired and document them here.
+
+### Test coverage
+
+- Maintain high automated test coverage. Every new function, branch, and
+  error path must ship with tests that execute it. Aim for 100% statement,
+  line, function, and branch coverage, and do not let a PR reduce it.
+- Run `npm run test:coverage` before opening a PR and inspect the uncovered
+  lines. CI uploads `coverage/lcov.info` to Codecov (configured in
+  `codecov.yml`); its project and patch status checks are the source of
+  truth for coverage regressions.
+- Do not add coverage exclusions or ignore comments merely to raise the
+  number. Cover the behavior, or justify the exclusion in the PR and add it
+  to the Vitest/Codecov ignore lists deliberately.
 
 ---
 
