@@ -1,5 +1,12 @@
 # @knorby/nih-dsld-client
 
+[![Tests](https://img.shields.io/github/actions/workflow/status/knorby/nih-dsld-client/tests.yml?branch=main&label=tests)](https://github.com/knorby/nih-dsld-client/actions/workflows/tests.yml)
+[![codecov](https://codecov.io/gh/knorby/nih-dsld-client/graph/badge.svg)](https://codecov.io/gh/knorby/nih-dsld-client)
+[![npm version](https://img.shields.io/npm/v/@knorby/nih-dsld-client)](https://www.npmjs.com/package/@knorby/nih-dsld-client)
+[![GitHub](https://img.shields.io/badge/github-knorby%2Fnih--dsld--client-181717?logo=github)](https://github.com/knorby/nih-dsld-client)
+[![License](https://img.shields.io/github/license/knorby/nih-dsld-client)](https://github.com/knorby/nih-dsld-client/blob/main/LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-typed-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+
 A fully-typed, zero-dependency TypeScript client for the NIH Dietary Supplement
 Label Database (DSLD) v9 REST API. Universal: works in Node, React Native,
 browsers, Bun, and Deno — anywhere the standard Web `fetch` is available.
